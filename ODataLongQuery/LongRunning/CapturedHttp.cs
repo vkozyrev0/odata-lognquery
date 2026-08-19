@@ -16,6 +16,8 @@ public sealed class CapturedRequest
     public byte[] Body { get; init; } = [];
     public required IReadOnlyList<KeyValuePair<string, string[]>> Headers { get; init; }
     public string TraceIdentifier { get; init; } = "";
+    public Endpoint? Endpoint { get; init; }
+    public required IReadOnlyDictionary<string, object?> RouteValues { get; init; }
 
     public static async Task<CapturedRequest> FromAsync(HttpRequest request, CancellationToken cancellationToken)
     {
@@ -41,13 +43,15 @@ public sealed class CapturedRequest
             ContentType = request.ContentType,
             Body = body.ToArray(),
             Headers = headers,
-            TraceIdentifier = request.HttpContext.TraceIdentifier
+            TraceIdentifier = request.HttpContext.TraceIdentifier,
+            Endpoint = request.HttpContext.GetEndpoint(),
+            RouteValues = new Dictionary<string, object?>(request.RouteValues)
         };
     }
 
     public HttpRequestMessage ToHttpRequestMessage()
     {
-        var url = $"{Scheme}://{Host}{PathBase}{Path}{QueryString}";
+        var url = $"{Scheme}://{LoopbackHost()}{PathBase}{Path}{QueryString}";
         var message = new HttpRequestMessage(new HttpMethod(Method), url);
 
         if (Body.Length > 0)
@@ -81,6 +85,17 @@ public sealed class CapturedRequest
         message.Headers.TryAddWithoutValidation(AsyncRequestMiddleware.ReplayHeaderName, "1");
         return message;
     }
+
+    private string LoopbackHost()
+    {
+        var name = Host.Host;
+        if (string.Equals(name, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            name = "127.0.0.1";
+        }
+
+        return Host.Port is { } port ? $"{name}:{port}" : name;
+    }
 }
 
 public sealed class CapturedResponse
@@ -103,6 +118,37 @@ public sealed class CapturedResponse
         "Upgrade",
         "Host"
     };
+
+    public static async Task<CapturedResponse> FromHttpContextAsync(HttpResponse response)
+    {
+        if (response.Body.CanSeek)
+        {
+            response.Body.Position = 0;
+        }
+
+        using var body = new MemoryStream();
+        await response.Body.CopyToAsync(body);
+
+        var headers = new List<KeyValuePair<string, string[]>>();
+        foreach (var header in response.Headers)
+        {
+            if (HopByHopHeaders.Contains(header.Key))
+            {
+                continue;
+            }
+
+            headers.Add(new(header.Key, header.Value.ToArray()!));
+        }
+
+        return new CapturedResponse
+        {
+            StatusCode = response.StatusCode,
+            ReasonPhrase = ReasonPhrases.GetReasonPhrase(response.StatusCode),
+            ContentType = response.ContentType,
+            Body = body.ToArray(),
+            Headers = headers
+        };
+    }
 
     public static async Task<CapturedResponse> FromAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {

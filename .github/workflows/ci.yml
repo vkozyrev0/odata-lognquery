@@ -10,8 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - name: Build
+
+      - name: Build OData service
         run: dotnet build --configuration Release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ODataLongQuery.Web/package-lock.json
+
+      - name: Build Angular client
+        working-directory: ODataLongQuery.Web
+        run: |
+          npm ci
+          npm run build

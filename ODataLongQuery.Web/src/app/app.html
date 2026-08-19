@@ -3,9 +3,9 @@
     <p class="eyebrow">Angular 22 demo client</p>
     <h1>Long-running OData queries</h1>
     <p class="lead">
-      This site calls the sample OData service through the <code>ng serve</code> proxy.
       Compare a blocking query with <code>Prefer: respond-async</code>, which returns
-      <strong>HTTP 202</strong> and a pollable status monitor.
+      <strong>HTTP 202</strong> and a pollable status monitor. The actions grid records each
+      HTTP call before product rows appear.
     </p>
   </header>
 
@@ -29,7 +29,7 @@
           min="1"
           max="100"
           [value]="top() ?? ''"
-          (input)="top.set($any($event.target).value === '' ? null : Number($any($event.target).value))"
+          (input)="setTop($any($event.target).value)"
         />
       </label>
 
@@ -56,7 +56,7 @@
           min="0"
           max="60"
           [value]="waitSeconds()"
-          (input)="waitSeconds.set(Number($any($event.target).value))"
+          (input)="setWaitSeconds($any($event.target).value)"
         />
       </label>
 
@@ -74,7 +74,7 @@
       </fieldset>
 
       <button type="submit" [disabled]="busy()">{{ busy() ? 'Running…' : 'Run query' }}</button>
-      <p class="hint">Dev proxy: <code>/odata</code> and <code>/async</code> → <code>http://localhost:5268</code>.</p>
+      <p class="hint">Calls the service directly at <code>http://127.0.0.1:5268</code>. Keep <code>dotnet run --project ODataLongQuery</code> running.</p>
     </form>
 
     <div class="stack">
@@ -121,36 +121,40 @@
         }
       </section>
 
-      <section class="card">
+      <section class="card results-pane">
         <h2>Results</h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Id</th>
-                <th>Name</th>
-                <th>Category</th>
-                <th>Price</th>
-                <th>Stock</th>
-                <th>Discontinued</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (product of result()?.products ?? []; track product.id) {
-                <tr>
-                  <td>{{ product.id }}</td>
-                  <td>{{ product.name }}</td>
-                  <td>{{ product.category }}</td>
-                  <td>{{ product.price | number: '1.2-2' }}</td>
-                  <td>{{ product.unitsInStock }}</td>
-                  <td>{{ product.discontinued ? 'yes' : 'no' }}</td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-        <pre class="raw">{{ result()?.rawBody }}</pre>
+        <ag-grid-angular
+          class="results-grid"
+          [theme]="gridTheme"
+          [rowData]="result()?.products ?? []"
+          [columnDefs]="columnDefs"
+          [defaultColDef]="defaultColDef"
+          [animateRows]="true"
+          [pagination]="true"
+          [paginationPageSize]="10"
+          [paginationPageSizeSelector]="[10, 20, 50]"
+        />
       </section>
     </div>
+
+    <section class="card actions-pane">
+      <div class="card-heading">
+        <h2>Actions</h2>
+        <button type="button" class="secondary" [disabled]="actions().length === 0" (click)="clearActions()">
+          Clear
+        </button>
+      </div>
+      <p class="hint">HTTP steps for the current query, in order.</p>
+      <ag-grid-angular
+        class="actions-grid"
+        [theme]="gridTheme"
+        [rowData]="actions()"
+        [columnDefs]="actionColumnDefs"
+        [defaultColDef]="actionDefaultColDef"
+        [getRowId]="getActionRowId"
+        [animateRows]="true"
+        [domLayout]="'normal'"
+      />
+    </section>
   </div>
 </div>

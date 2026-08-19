@@ -6,6 +6,10 @@
 # Local agent / session files
 .grok/
 
+# Angular
+.angular/
+**/dist/
+
 # dotenv files
 .env
 

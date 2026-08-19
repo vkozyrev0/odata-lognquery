@@ -21,14 +21,20 @@ public sealed class AsyncJobCleanupService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        try
         {
-            var ttl = TimeSpan.FromMinutes(Math.Max(1, _options.Value.JobTimeToLiveMinutes));
-            var removed = _jobs.PurgeExpired(ttl);
-            if (removed > 0)
+            while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                _logger.LogInformation("Purged {Count} expired async jobs", removed);
+                var ttl = TimeSpan.FromMinutes(Math.Max(1, _options.Value.JobTimeToLiveMinutes));
+                var removed = _jobs.PurgeExpired(ttl);
+                if (removed > 0)
+                {
+                    _logger.LogInformation("Purged {Count} expired async jobs", removed);
+                }
             }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
         }
     }
 }

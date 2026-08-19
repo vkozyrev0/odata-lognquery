@@ -35,7 +35,7 @@ That is the entire point of the sample: make that protocol visible, end to end.
 | Piece | Role |
 | --- | --- |
 | `ODataLongQuery` | OData v4 service on **.NET 10**. Exposes `Products` and implements the 202 / monitor / cancel path. |
-| `ODataLongQuery.Web` | Small C# Razor Pages site that acts as an OData client. Used to demonstrate the protocol from a browser. |
+| `ODataLongQuery.Web` | Angular 22 client. Used to demonstrate the protocol from a browser. |
 | `docs/purpose.md` | This document: why the sample exists. |
 | `queries.http` | The same calls for a REST client. |
 
@@ -54,7 +54,7 @@ It exists so someone can:
 - Try `$filter`, `$orderby`, and `$top` and still go through the same 202 path.
 - Compare the two completed-monitor payload styles: OData 4.01 unwrapped JSON versus the OData 4.0 `application/http` wrapper.
 
-The site talks to the service through server-side `HttpClient`. The browser talks only to the website. That keeps the demo on one origin and puts the OData client code in C#, which is the language this sample is meant to show.
+During local demo, the Angular app calls `http://127.0.0.1:5268` directly (CORS) and sends the real OData headers (`Prefer`, `Accept`). Polling uses `/async/{jobId}` on that same origin.
 
 ## What this demo is not
 
@@ -72,4 +72,4 @@ These are optional follow-ups, not part of the current demo:
 1. Swap the in-memory catalog for EF Core and make only *estimated-slow* queries async.
 2. Persist jobs so a recycle or second instance can still serve the monitor URL.
 3. Add authentication and make the monitor URL private to the caller.
-4. Drive the UI with Blazor so the poll loop stays in C# instead of a small script on the page.
+4. Host the Angular production build from the OData service (or another static host) instead of only `ng serve`.

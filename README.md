@@ -2,7 +2,7 @@
 
 A .NET 10 teaching sample for [OData asynchronous requests](https://docs.oasis-open.org/odata/odata/v4.01/odata-v4.01-part1-protocol.html#sec_AsynchronousRequests).
 
-The service accepts a normal OData query with `Prefer: respond-async`, returns **202 Accepted** plus a status-monitor URL, and lets the client poll (or cancel) until the result is ready. A small Razor Pages site acts as the C# client so you can watch the handshake in a browser.
+The service accepts a normal OData query with `Prefer: respond-async`, returns **202 Accepted** plus a status-monitor URL, and lets the client poll (or cancel) until the result is ready. An Angular 22 site acts as the browser client so you can watch the handshake without writing curl.
 
 This is a demo, not a production job runner. Jobs are in-memory. Product queries include a short artificial delay so 202 stays on screen long enough to see.
 
@@ -13,7 +13,7 @@ Why the sample exists: [docs/purpose.md](docs/purpose.md).
 | Path | Role |
 | --- | --- |
 | `ODataLongQuery/` | OData v4 service (`Products`, 202 middleware, `/async/{jobId}` monitor) |
-| `ODataLongQuery.Web/` | Razor Pages client that calls the service |
+| `ODataLongQuery.Web/` | Angular 22 client (`ng serve` proxies `/odata` and `/async` to the service) |
 | `docs/purpose.md` | Purpose of the demo |
 | `queries.http` | REST Client requests for the same flows |
 | `global.json` | Pins the released .NET 10 SDK (`10.0.400`) |
@@ -21,6 +21,7 @@ Why the sample exists: [docs/purpose.md](docs/purpose.md).
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (10.0.400 or later in the 10.0 line)
+- [Node.js](https://nodejs.org/) 20 or later (for the Angular client)
 - Windows, macOS, or Linux
 
 ```bash
@@ -29,17 +30,19 @@ dotnet --version
 
 ## Run
 
-From the repo root, start the service, then the website (two terminals):
+From the repo root, start the service, then the Angular client (two terminals):
 
 ```bash
 dotnet run --project ODataLongQuery
-dotnet run --project ODataLongQuery.Web
+cd ODataLongQuery.Web && npm start
 ```
 
 | App | URL |
 | --- | --- |
 | OData service | http://localhost:5268 |
-| Demo website | http://localhost:5248 |
+| Angular demo | http://localhost:4200 (or http://127.0.0.1:4200) |
+
+The Angular app calls the service at `http://127.0.0.1:5268` (CORS). Keep both processes running.
 
 Open the website to compare a blocking query with `Prefer: respond-async`, poll the monitor, cancel a job, and switch between OData 4.01 unwrapped JSON and the 4.0 `application/http` wrapper.
 
@@ -147,12 +150,11 @@ curl -X DELETE http://localhost:5268/async/{jobId}
 
 Set `QueryDelayMilliseconds` to `0` to turn off the artificial delay.
 
-The website points at the service with `OData:BaseUrl` in `ODataLongQuery.Web/appsettings.json` (default `http://localhost:5268`).
-
 ## Build
 
 ```bash
 dotnet build
+cd ODataLongQuery.Web && npm ci && npm run build
 ```
 
 ## What this is not

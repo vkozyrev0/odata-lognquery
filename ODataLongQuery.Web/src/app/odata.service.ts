@@ -1,6 +1,4 @@
-import { HttpClient, HttpHeaders, HttpResponse } from '@angular/common/http';
-import { inject, Injectable } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { Injectable } from '@angular/core';
 
 export type CallMode = 'sync' | 'async' | 'wait';
 export type PayloadStyle = 'unwrapped' | 'http';
@@ -45,70 +43,71 @@ export interface DemoQueryResult {
 
 @Injectable({ providedIn: 'root' })
 export class ODataService {
-  private readonly http = inject(HttpClient);
+  /** Direct to Kestrel. Avoids Vite proxy keep-alive ECONNRESET on Node 18+. */
+  readonly apiBase = 'http://127.0.0.1:5268';
 
   async query(spec: QuerySpec): Promise<DemoQueryResult> {
     const path = this.buildPath(spec);
+    const url = this.apiBase + path;
     const prefer = this.preferFor(spec.mode, spec.waitSeconds);
-    const headers = new HttpHeaders({
-      Accept: 'application/json',
-      ...(prefer ? { Prefer: prefer } : {}),
-    });
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (prefer) {
+      headers['Prefer'] = prefer;
+    }
 
     try {
-      const response = await firstValueFrom(
-        this.http.get(path, { headers, observe: 'response', responseType: 'text' }),
-      );
-      return this.read(response, path, prefer, spec.payloadStyle);
+      const response = await fetch(url, { method: 'GET', headers });
+      return await this.read(response, path, prefer, spec.payloadStyle);
     } catch (err: unknown) {
-      if (this.isHttpError(err)) {
-        return this.read(err, path, prefer, spec.payloadStyle);
-      }
       return this.failed(
-        `Could not reach the OData service. Start ODataLongQuery first. ${this.messageOf(err)}`,
+        `Could not reach the OData service at ${this.apiBase}. Start it first:\n` +
+          `dotnet run --project ODataLongQuery\n\n${this.messageOf(err)}`,
+        path,
+        prefer,
       );
     }
   }
 
   async poll(jobId: string, payloadStyle: PayloadStyle): Promise<DemoQueryResult> {
     const path = `/async/${jobId}`;
+    const url = this.apiBase + path;
     const accept = payloadStyle === 'http' ? 'application/http' : 'application/json';
-    const headers = new HttpHeaders({
-      Accept: accept,
-      ...(payloadStyle === 'http' ? { 'OData-MaxVersion': '4.0' } : {}),
-    });
+    const headers: Record<string, string> = { Accept: accept };
+    if (payloadStyle === 'http') {
+      headers['OData-MaxVersion'] = '4.0';
+    }
 
     try {
-      const response = await firstValueFrom(
-        this.http.get(path, { headers, observe: 'response', responseType: 'text' }),
-      );
-      const result = this.read(response, path, null, payloadStyle);
+      const response = await fetch(url, { method: 'GET', headers });
+      const result = await this.read(response, path, null, payloadStyle);
       result.acceptHeader = accept;
       return result;
     } catch (err: unknown) {
-      if (this.isHttpError(err)) {
-        return this.read(err, path, null, payloadStyle);
-      }
-      return this.failed(this.messageOf(err));
+      return this.failed(this.messageOf(err), path);
     }
   }
 
   async cancel(jobId: string): Promise<void> {
-    await firstValueFrom(this.http.delete(`/async/${jobId}`, { observe: 'response' }));
+    const response = await fetch(this.apiBase + `/async/${jobId}`, { method: 'DELETE' });
+    if (!response.ok && response.status !== 204) {
+      throw new Error(`Cancel failed (${response.status})`);
+    }
   }
 
   private buildPath(spec: QuerySpec): string {
-    const parts: string[] = [];
+    const params = new URLSearchParams();
     if (spec.filter.trim()) {
-      parts.push('$filter=' + encodeURIComponent(spec.filter.trim()));
+      params.set('$filter', spec.filter.trim());
     }
     if (spec.orderBy.trim()) {
-      parts.push('$orderby=' + encodeURIComponent(spec.orderBy.trim()));
+      params.set('$orderby', spec.orderBy.trim());
     }
     if (spec.top && spec.top > 0) {
-      parts.push('$top=' + spec.top);
+      params.set('$top', String(spec.top));
     }
-    return parts.length === 0 ? '/odata/Products' : '/odata/Products?' + parts.join('&');
+
+    const query = params.toString().replace(/%24/g, '$');
+    return query ? `/odata/Products?${query}` : '/odata/Products';
   }
 
   private preferFor(mode: CallMode, waitSeconds: number): string | null {
@@ -121,13 +120,13 @@ export class ODataService {
     return null;
   }
 
-  private read(
-    response: HttpResponse<string>,
+  private async read(
+    response: Response,
     requestUrl: string,
     prefer: string | null,
     payloadStyle: PayloadStyle,
-  ): DemoQueryResult {
-    const body = response.body ?? '';
+  ): Promise<DemoQueryResult> {
+    const body = await response.text();
     const result: DemoQueryResult = {
       state: 'idle',
       statusCode: response.status,
@@ -148,8 +147,19 @@ export class ODataService {
       products: [],
     };
 
+    if (this.looksLikeHtml(body)) {
+      result.state = 'failed';
+      result.error =
+        'The Angular dev server returned HTML instead of OData. The proxy is not reaching the service. ' +
+        'Start ODataLongQuery on http://127.0.0.1:5268 and restart npm start.';
+      return result;
+    }
+
     if (response.status === 202) {
       result.state = prefer ? 'accepted' : 'running';
+      if (!result.jobId) {
+        result.error = '202 Accepted did not include a monitor job id in Location or the body.';
+      }
       return result;
     }
 
@@ -161,7 +171,7 @@ export class ODataService {
 
     if (response.status < 200 || response.status >= 300) {
       result.state = 'failed';
-      result.error = body || response.statusText;
+      result.error = this.errorFromBody(body) || `${response.status} ${response.statusText}`;
       return result;
     }
 
@@ -207,19 +217,24 @@ export class ODataService {
       return [];
     }
     try {
-      const parsed = JSON.parse(body) as { value?: Product[] } | Product[];
-      const rows = Array.isArray(parsed) ? parsed : parsed.value;
+      const parsed = JSON.parse(body) as Record<string, unknown> | unknown[];
+      const rows = Array.isArray(parsed)
+        ? parsed
+        : ((parsed as { value?: unknown }).value as unknown);
       if (!Array.isArray(rows)) {
         return [];
       }
-      return rows.map((row) => ({
-        id: Number(row.id ?? (row as unknown as { Id: number }).Id),
-        name: String(row.name ?? (row as unknown as { Name: string }).Name ?? ''),
-        category: String(row.category ?? (row as unknown as { Category: string }).Category ?? ''),
-        price: Number(row.price ?? (row as unknown as { Price: number }).Price),
-        unitsInStock: Number(row.unitsInStock ?? (row as unknown as { UnitsInStock: number }).UnitsInStock),
-        discontinued: Boolean(row.discontinued ?? (row as unknown as { Discontinued: boolean }).Discontinued),
-      }));
+      return rows.map((item) => {
+        const row = item as Record<string, unknown>;
+        return {
+          id: Number(row['id'] ?? row['Id']),
+          name: String(row['name'] ?? row['Name'] ?? ''),
+          category: String(row['category'] ?? row['Category'] ?? ''),
+          price: Number(row['price'] ?? row['Price']),
+          unitsInStock: Number(row['unitsInStock'] ?? row['UnitsInStock']),
+          discontinued: Boolean(row['discontinued'] ?? row['Discontinued']),
+        };
+      });
     } catch {
       return [];
     }
@@ -227,6 +242,10 @@ export class ODataService {
 
   private jobIdFrom(location: string | null, body: string): string | null {
     if (location) {
+      const match = /async\/([0-9a-fA-F-]{36})/.exec(location);
+      if (match) {
+        return match[1];
+      }
       const slash = location.lastIndexOf('/');
       if (slash >= 0 && slash < location.length - 1) {
         return location.slice(slash + 1);
@@ -240,11 +259,11 @@ export class ODataService {
     }
   }
 
-  private header(response: HttpResponse<string>, name: string): string | null {
+  private header(response: Response, name: string): string | null {
     return response.headers.get(name);
   }
 
-  private intHeader(response: HttpResponse<string>, name: string): number | null {
+  private intHeader(response: Response, name: string): number | null {
     const value = response.headers.get(name);
     if (!value) {
       return null;
@@ -253,8 +272,21 @@ export class ODataService {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
-  private isHttpError(err: unknown): err is HttpResponse<string> {
-    return err instanceof HttpResponse;
+  private looksLikeHtml(body: string): boolean {
+    const start = body.trimStart().slice(0, 32).toLowerCase();
+    return start.startsWith('<!doctype') || start.startsWith('<html');
+  }
+
+  private errorFromBody(body: string): string | null {
+    if (!body.trim()) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(body) as { error?: { message?: string }; message?: string };
+      return parsed.error?.message ?? parsed.message ?? body;
+    } catch {
+      return body;
+    }
   }
 
   private messageOf(err: unknown): string {
@@ -264,7 +296,7 @@ export class ODataService {
     return String(err);
   }
 
-  private failed(message: string): DemoQueryResult {
+  private failed(message: string, requestUrl = '', prefer: string | null = null): DemoQueryResult {
     return {
       state: 'failed',
       statusCode: 0,
@@ -279,8 +311,8 @@ export class ODataService {
       innerContentType: null,
       rawBody: '',
       error: message,
-      requestUrl: '',
-      preferHeader: null,
+      requestUrl,
+      preferHeader: prefer,
       acceptHeader: null,
       products: [],
     };

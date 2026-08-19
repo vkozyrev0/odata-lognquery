@@ -34,7 +34,7 @@ public sealed class AsyncMonitorController : ControllerBase
 
         if (job.Status is AsyncJobStatus.Running)
         {
-            var location = $"{Request.Scheme}://{Request.Host}/async/{job.Id}";
+            var location = $"/async/{job.Id}";
             Response.StatusCode = StatusCodes.Status202Accepted;
             Response.Headers.Location = location;
             Response.Headers.RetryAfter = _options.RetryAfterSeconds.ToString();
