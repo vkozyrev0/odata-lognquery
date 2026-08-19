@@ -1,0 +1,36 @@
+@host = http://localhost:5268
+
+### Service document
+GET {{host}}/odata
+
+### Metadata
+GET {{host}}/odata/$metadata
+
+### Synchronous query (waits ~4s for the demo delay)
+GET {{host}}/odata/Products?$filter=Price lt 50&$select=Id,Name,Price,Category
+OData-Version: 4.0
+
+### Long-running query via HTTP 202
+# Poll the Location URL from the 202 response until it returns 200 + AsyncResult.
+GET {{host}}/odata/Products?$filter=contains(Name,'Queso')&$orderby=Price
+Prefer: respond-async
+OData-Version: 4.0
+
+### Wait up to 10 seconds, then 202 if still running
+GET {{host}}/odata/Products?$top=5
+Prefer: respond-async, wait=10
+OData-Version: 4.0
+
+### Single entity, async
+GET {{host}}/odata/Products(3)
+Prefer: respond-async
+
+### Poll a job (replace the id)
+GET {{host}}/async/00000000-0000-0000-0000-000000000000
+
+### Poll wrapped as application/http (OData 4.0 style)
+GET {{host}}/async/00000000-0000-0000-0000-000000000000
+Accept: application/http
+
+### Cancel a running job
+DELETE {{host}}/async/00000000-0000-0000-0000-000000000000

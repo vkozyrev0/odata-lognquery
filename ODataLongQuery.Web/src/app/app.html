@@ -1,0 +1,156 @@
+<div class="page">
+  <header class="hero">
+    <p class="eyebrow">Angular 22 demo client</p>
+    <h1>Long-running OData queries</h1>
+    <p class="lead">
+      This site calls the sample OData service through the <code>ng serve</code> proxy.
+      Compare a blocking query with <code>Prefer: respond-async</code>, which returns
+      <strong>HTTP 202</strong> and a pollable status monitor.
+    </p>
+  </header>
+
+  <div class="layout">
+    <form class="card" (submit)="$event.preventDefault(); run()">
+      <h2>Query Products</h2>
+      <p class="hint">These fields become OData query options on <code>/odata/Products</code>.</p>
+
+      <label>
+        $filter
+        <input [value]="filter()" (input)="filter.set($any($event.target).value)" placeholder="contains(Name,'Queso')" />
+      </label>
+      <label>
+        $orderby
+        <input [value]="orderBy()" (input)="orderBy.set($any($event.target).value)" placeholder="Price desc" />
+      </label>
+      <label>
+        $top
+        <input
+          type="number"
+          min="1"
+          max="100"
+          [value]="top() ?? ''"
+          (input)="top.set($any($event.target).value === '' ? null : Number($any($event.target).value))"
+        />
+      </label>
+
+      <fieldset>
+        <legend>How to call the service</legend>
+        <label class="choice">
+          <input type="radio" name="mode" value="sync" [checked]="mode() === 'sync'" (change)="mode.set('sync')" />
+          Synchronous — wait on this request (~4s demo delay)
+        </label>
+        <label class="choice">
+          <input type="radio" name="mode" value="async" [checked]="mode() === 'async'" (change)="mode.set('async')" />
+          Async — <code>Prefer: respond-async</code>, then poll
+        </label>
+        <label class="choice">
+          <input type="radio" name="mode" value="wait" [checked]="mode() === 'wait'" (change)="mode.set('wait')" />
+          Async with wait — hold up to N seconds, then 202 if still running
+        </label>
+      </fieldset>
+
+      <label>
+        wait seconds
+        <input
+          type="number"
+          min="0"
+          max="60"
+          [value]="waitSeconds()"
+          (input)="waitSeconds.set(Number($any($event.target).value))"
+        />
+      </label>
+
+      <fieldset>
+        <legend>Completed-monitor payload</legend>
+        <p class="hint">Applies when polling the 202 <code>Location</code> URL. Sync results are always plain OData JSON.</p>
+        <label class="choice">
+          <input type="radio" name="style" value="unwrapped" [checked]="payloadStyle() === 'unwrapped'" (change)="payloadStyle.set('unwrapped')" />
+          OData 4.01 unwrapped — JSON body + <code>AsyncResult</code> header
+        </label>
+        <label class="choice">
+          <input type="radio" name="style" value="http" [checked]="payloadStyle() === 'http'" (change)="payloadStyle.set('http')" />
+          OData 4.0 wrapped — <code>Accept: application/http</code> HTTP message
+        </label>
+      </fieldset>
+
+      <button type="submit" [disabled]="busy()">{{ busy() ? 'Running…' : 'Run query' }}</button>
+      <p class="hint">Dev proxy: <code>/odata</code> and <code>/async</code> → <code>http://localhost:5268</code>.</p>
+    </form>
+
+    <div class="stack">
+      <section class="card">
+        <h2>Protocol trace</h2>
+        @if (!result()) {
+          <p class="hint">Run a query to see status codes, <code>Location</code>, <code>AsyncResult</code>, and the payload.</p>
+        } @else {
+          <dl class="protocol">
+            <dt>Request</dt>
+            <dd><code>GET {{ result()!.requestUrl }}</code></dd>
+            <dt>Prefer</dt>
+            <dd>{{ result()!.preferHeader || '—' }}</dd>
+            <dt>HTTP status</dt>
+            <dd>{{ result()!.statusCode }} {{ result()!.state }}</dd>
+            <dt>Preference-Applied</dt>
+            <dd>{{ result()!.preferenceApplied || '—' }}</dd>
+            <dt>Location</dt>
+            <dd>{{ result()!.monitorUrl || '—' }}</dd>
+            <dt>Retry-After</dt>
+            <dd>{{ result()!.retryAfterSeconds ?? '—' }}</dd>
+            <dt>AsyncResult</dt>
+            <dd>{{ result()!.asyncResult ?? '—' }}</dd>
+            <dt>Job</dt>
+            <dd>{{ result()!.jobId || '—' }}</dd>
+            <dt>Content-Type</dt>
+            <dd>{{ result()!.contentType || '—' }}</dd>
+            <dt>Payload style</dt>
+            <dd>{{ result()!.payloadStyle === 'http' ? '4.0 application/http' : '4.01 unwrapped' }}</dd>
+            <dt>Inner status</dt>
+            <dd>{{ result()!.innerStatusCode ?? '—' }}</dd>
+          </dl>
+
+          @if (polling()) {
+            <div class="poll-row">
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Polling the status monitor…</span>
+              <button type="button" class="danger" (click)="cancel()">Cancel</button>
+            </div>
+          }
+          @if (result()!.error) {
+            <p class="error">{{ result()!.error }}</p>
+          }
+        }
+      </section>
+
+      <section class="card">
+        <h2>Results</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Id</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Stock</th>
+                <th>Discontinued</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (product of result()?.products ?? []; track product.id) {
+                <tr>
+                  <td>{{ product.id }}</td>
+                  <td>{{ product.name }}</td>
+                  <td>{{ product.category }}</td>
+                  <td>{{ product.price | number: '1.2-2' }}</td>
+                  <td>{{ product.unitsInStock }}</td>
+                  <td>{{ product.discontinued ? 'yes' : 'no' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <pre class="raw">{{ result()?.rawBody }}</pre>
+      </section>
+    </div>
+  </div>
+</div>
