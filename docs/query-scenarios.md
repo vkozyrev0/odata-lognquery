@@ -29,7 +29,7 @@ OData paging does **not** replace 202. Paging splits a **result** into pages. 20
 | `DatasetSize` | 5000 | In-memory `Products` catalog |
 | `PageSize` | 500 | Server-driven page; first response includes `@odata.nextLink` until the last page |
 | `QueryDelayMilliseconds` | 300 | Delay **per page** for sync and for `respond-async` without wait |
-| `WaitQueryDelayMilliseconds` | 4000 | Delay **per page** when Prefer includes `wait=N`. Keep N below this (demo default wait is 2s) to get 202; at or above it to get 200 |
+| `WaitQueryDelayMilliseconds` | 4000 | Default delay **per page** when Prefer includes `wait=N`, if the client does not send `X-Demo-Wait-Delay-Milliseconds` |
 
 The Angular client and the three Power Query scripts use the **same page-following algorithm**:
 
@@ -38,7 +38,7 @@ The Angular client and the three Power Query scripts use the **same page-followi
 3. If `nextLink` is present, GET that URL with the **same scenario headers** as page 1.
    - Sync: no `Prefer`.
    - Async: `Prefer: respond-async` (a **new job per page**), then poll `Location`.
-   - Async with wait: `Prefer: respond-async, wait=N` on page 1; later pages use `wait=min(N, 5)`. Each of those pages sleeps `WaitQueryDelayMilliseconds` (4s) so N=2 yields **202** and N≥4 yields **200**.
+   - Async with wait: `Prefer: respond-async, wait=N` on page 1; later pages use `wait=min(N, 5)`. Each of those pages sleeps the client’s wait-mode delay (`X-Demo-Wait-Delay-Milliseconds`, default 4000). If that delay is greater than N seconds the page returns **202**; otherwise **200**.
 4. Concatenate `value` until there is no `nextLink` (10 pages × 500 = 5000 rows in the default catalog).
 
 Treat `@odata.nextLink` as an opaque URL. Do not rebuild `$skip` yourself unless the service documents conventional paging (this demo happens to use `$skip`).
@@ -141,7 +141,7 @@ After the monitor returns 200, the body may still contain `@odata.nextLink`. Eac
 
 **Demo control:** “Async with wait — hold up to N seconds, then 202 if still running.”
 
-**Headers:** `Prefer: respond-async, wait=2` (N is the demo’s wait seconds; default 2 so it is below the 4s wait-mode page delay).
+**Headers:** `Prefer: respond-async, wait=N` plus `X-Demo-Wait-Delay-Milliseconds` (the Angular **wait seconds** and **wait-mode page delay (seconds)** boxes). Defaults are wait 2s and delay 4s, so the first request returns 202. Raise wait or lower the delay to get 200 instead.
 
 **Sequence:**
 

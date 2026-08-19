@@ -4,8 +4,8 @@
 //   If the page finishes in N seconds the first response is 200 (no poll);
 //   otherwise 202 + poll Location.
 //   Continuation pages use wait=min(N, 5) — NextPageWaitSeconds — matching the web app.
-//   The service sleeps WaitQueryDelayMilliseconds (4s) on each wait-mode page, so
-//   N=2 yields 202 and N>=4 yields 200. Matches the Angular default wait of 2.
+//   WaitQueryDelaySeconds matches the Angular "wait-mode page delay (seconds)" box.
+//   It is sent as X-Demo-Wait-Delay-Milliseconds (seconds × 1000). If delay > wait, 202.
 // Service defaults: catalog 5000, page size 500.
 // First URL matches the web app: $count=true&$orderby=Id, no $top.
 // Start the sample service first: dotnet run --project ODataLongQuery
@@ -15,6 +15,7 @@ let
     FirstUrl = BaseUrl & "/odata/Products?$count=true&$orderby=Id",
     FirstPageWaitSeconds = 2,
     NextPageWaitSeconds = 2,
+    WaitQueryDelaySeconds = 4,
     MaxPages = 100,
     MaxPolls = 60,
     PollDelay = #duration(0, 0, 0, 2),
@@ -40,7 +41,11 @@ let
                 if prefer = null then
                     [Accept = "application/json"]
                 else
-                    [Accept = "application/json", Prefer = prefer],
+                    [
+                        Accept = "application/json",
+                        Prefer = prefer,
+                        #"X-Demo-Wait-Delay-Milliseconds" = Number.ToText(WaitQueryDelaySeconds * 1000)
+                    ],
             binary = Web.Contents(
                 url,
                 [
@@ -48,11 +53,11 @@ let
                     ManualStatusHandling = {200, 202, 404, 410, 500}
                 ]
             ),
-            meta = Value.Metadata(binary)
+            responseMeta = Value.Metadata(binary)
         in
             [
-                Status = meta[Response.Status],
-                Headers = meta[Headers],
+                Status = responseMeta[Response.Status],
+                Headers = responseMeta[Headers],
                 Binary = binary
             ],
 

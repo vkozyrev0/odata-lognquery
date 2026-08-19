@@ -25,12 +25,14 @@ export interface QuerySpec {
   top: number | null;
   mode: CallMode;
   waitSeconds: number;
+  waitDelaySeconds: number;
   payloadStyle: PayloadStyle;
 }
 
 export interface PageRequest {
   mode: CallMode;
   waitSeconds: number;
+  waitDelaySeconds: number;
   payloadStyle: PayloadStyle;
 }
 
@@ -60,6 +62,7 @@ export interface DemoQueryResult {
 export class ODataService {
   /** Direct to Kestrel. Avoids Vite proxy keep-alive ECONNRESET on Node 18+. */
   readonly apiBase = 'http://127.0.0.1:5268';
+  readonly waitDelayHeader = 'X-Demo-Wait-Delay-Milliseconds';
 
   async config(): Promise<DemoConfig> {
     const response = await fetch(this.apiBase + '/demo/config');
@@ -92,6 +95,11 @@ export class ODataService {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (prefer) {
       headers['Prefer'] = prefer;
+    }
+    if (spec.mode === 'wait') {
+      headers[this.waitDelayHeader] = String(
+        Math.min(60_000, Math.max(0, Math.round(spec.waitDelaySeconds * 1000))),
+      );
     }
 
     try {

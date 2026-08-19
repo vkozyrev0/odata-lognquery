@@ -35,7 +35,7 @@ All three scripts use the same client algorithm as the Angular app:
 | --- | --- | --- |
 | `Products_Sync` | none | n/a (200 only) |
 | `Products_Async` | `respond-async` | poll `Location` |
-| `Products_AsyncWait` | `respond-async, wait=N` (page 1: 2; later pages: 2) | poll when the 4s wait-mode page delay exceeds N |
+| `Products_AsyncWait` | `respond-async, wait=N` (page 1: 2s; later pages: 2s) plus page delay `WaitQueryDelaySeconds` (default 4s, sent as ms) | poll when delay seconds exceed N |
 
 `OData.Feed` would follow `nextLink` for the sync case; `Products_Sync.pq` still writes the loop so the three scripts stay comparable.
 

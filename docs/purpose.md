@@ -41,7 +41,7 @@ That is the entire point of the sample: make that protocol visible, end to end.
 | `excel/` | Power Query workbook (`OData-Query-Scenarios.xlsx`) and `.pq` scripts. |
 | `queries.http` | The same calls for a REST client. |
 
-The product catalog is in-memory (default **5000** rows, **500** per page — `DemoData` in `appsettings.json`). Each page sleeps a configurable time: `QueryDelayMilliseconds` (300ms) for sync and plain async, and `WaitQueryDelayMilliseconds` (4s) when Prefer includes `wait=N`. The longer wait-mode sleep is so a 2-second wait expires and the original request returns **202**. Without it, a laptop finishes a page inside N and you never see that branch. The Angular client and the Power Query scripts follow `@odata.nextLink` with the same three request modes.
+The product catalog is in-memory (default **5000** rows, **500** per page — `DemoData` in `appsettings.json`). Each page sleeps a configurable time: `QueryDelayMilliseconds` (300ms) for sync and plain async. Wait-mode pages sleep the client **wait-mode page delay** in seconds (Angular and Power Query `WaitQueryDelaySeconds`, default 4), sent as `X-Demo-Wait-Delay-Milliseconds`. Appsettings `WaitQueryDelayMilliseconds` (4000) is the fallback. Make that delay longer than wait seconds to see **202**, or shorter to see **200** on the original request. The Angular client and the Power Query scripts follow `@odata.nextLink` with the same three request modes.
 
 ## What the website is for
 

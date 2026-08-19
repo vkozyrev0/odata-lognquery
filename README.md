@@ -147,13 +147,15 @@ Content-Type: application/json
 
 Neither shape applies to a synchronous 200 or to async-with-wait that finishes on the original request — those bodies are already Products JSON.
 
-Wait-mode pages sleep 4s (`WaitQueryDelayMilliseconds`). A 2-second wait expires and returns 202; a 10-second wait covers the page and returns 200:
+Wait-mode page sleep is **per request**. The Angular form uses **seconds** for both wait and page delay (defaults 2s and 4s). The delay is sent as `X-Demo-Wait-Delay-Milliseconds` (seconds × 1000). Appsettings `WaitQueryDelayMilliseconds` is only the default if that header is omitted. Page delay greater than wait → 202; otherwise 200:
 
 ```bash
 curl -i -H "Prefer: respond-async, wait=2" \
+  -H "X-Demo-Wait-Delay-Milliseconds: 4000" \
   "http://localhost:5268/odata/Products?$count=true&$orderby=Id"
 
 curl -i -H "Prefer: respond-async, wait=10" \
+  -H "X-Demo-Wait-Delay-Milliseconds: 4000" \
   "http://localhost:5268/odata/Products?$count=true&$orderby=Id"
 ```
 
@@ -184,7 +186,7 @@ curl -X DELETE http://localhost:5268/async/{jobId}
 
 `PageSize` is the server-driven page (`@odata.nextLink` until the last page). Raise `DatasetSize` to try a larger catalog.
 
-`QueryDelayMilliseconds` is the per-page sleep for sync and for `respond-async` without wait. `WaitQueryDelayMilliseconds` is the per-page sleep when Prefer includes `wait=N`. The Angular default wait is **2 seconds**, so wait mode returns **202** (then you poll). Raise wait to 4 or more to get **200** on the original request instead. Set either delay to `0` to turn that sleep off.
+`QueryDelayMilliseconds` is the per-page sleep for sync and for `respond-async` without wait. `WaitQueryDelayMilliseconds` is the **default** wait-mode sleep when the client omits `X-Demo-Wait-Delay-Milliseconds`. The Angular form sets **wait seconds** and **wait-mode page delay (seconds)**; if delay > wait, you get **202**, otherwise **200**. Set a delay to `0` to turn that sleep off.
 
 `GET /demo/config` returns the live `datasetSize`, `pageSize`, and delay. The Angular client and the Power Query scripts in `excel/power-query/` follow `nextLink` with the same three modes as the UI.
 

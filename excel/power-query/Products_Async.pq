@@ -42,11 +42,11 @@ let
                     ManualStatusHandling = {200, 202, 404, 410, 500}
                 ]
             ),
-            meta = Value.Metadata(binary)
+            responseMeta = Value.Metadata(binary)
         in
             [
-                Status = meta[Response.Status],
-                Headers = meta[Headers],
+                Status = responseMeta[Response.Status],
+                Headers = responseMeta[Headers],
                 Binary = binary
             ],
 

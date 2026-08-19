@@ -97,6 +97,7 @@ export class App {
   protected readonly followPages = signal(true);
   protected readonly mode = signal<CallMode>('async');
   protected readonly waitSeconds = signal(2);
+  protected readonly waitDelaySeconds = signal(4);
   protected readonly payloadStyle = signal<PayloadStyle>('unwrapped');
   protected readonly result = signal<DemoQueryResult | null>(null);
   protected readonly actions = signal<ActionLogEntry[]>([]);
@@ -123,6 +124,11 @@ export class App {
 
   protected setWaitSeconds(value: string): void {
     this.waitSeconds.set(Number(value));
+  }
+
+  protected setWaitDelaySeconds(value: string): void {
+    const parsed = Number(value);
+    this.waitDelaySeconds.set(Number.isFinite(parsed) ? parsed : 0);
   }
 
   protected pagingSummary(): string {
@@ -156,6 +162,7 @@ export class App {
       top: this.top(),
       mode: this.mode(),
       waitSeconds: this.waitSeconds(),
+      waitDelaySeconds: this.waitDelaySeconds(),
       payloadStyle: this.payloadStyle(),
     };
 
@@ -282,7 +289,11 @@ export class App {
 
   private async loadConfig(): Promise<void> {
     try {
-      this.demoConfig.set(await this.odata.config());
+      const cfg = await this.odata.config();
+      this.demoConfig.set(cfg);
+      if (typeof cfg.waitQueryDelayMilliseconds === 'number') {
+        this.waitDelaySeconds.set(cfg.waitQueryDelayMilliseconds / 1000);
+      }
     } catch {
       this.demoConfig.set(null);
     }
@@ -368,7 +379,7 @@ export class App {
       return `GET ${which} with Prefer: respond-async (ask for HTTP 202)`;
     }
     if (spec.mode === 'wait') {
-      return `GET ${which} with Prefer: respond-async, wait=${waitSeconds}`;
+      return `GET ${which} with Prefer: respond-async, wait=${waitSeconds}; page delay ${spec.waitDelaySeconds}s`;
     }
     return `GET ${which} synchronously (no Prefer: respond-async)`;
   }

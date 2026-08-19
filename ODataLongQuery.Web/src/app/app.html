@@ -18,8 +18,8 @@
         The service pages at
         @if (demoConfig(); as cfg) {
           <strong>{{ cfg.pageSize }}</strong> rows (catalog <strong>{{ cfg.datasetSize }}</strong>;
-          {{ cfg.queryDelayMilliseconds }}ms delay per page,
-          {{ cfg.waitQueryDelayMilliseconds }}ms when using wait).
+          {{ cfg.queryDelayMilliseconds }}ms delay per page;
+          wait-mode delay is set below).
         } @else {
           500 rows (catalog 5000).
         }
@@ -80,16 +80,28 @@
           (input)="setWaitSeconds($any($event.target).value)"
         />
       </label>
+      <label>
+        wait-mode page delay (seconds)
+        <input
+          type="number"
+          min="0"
+          max="60"
+          step="1"
+          [value]="waitDelaySeconds()"
+          (input)="setWaitDelaySeconds($any($event.target).value)"
+        />
+      </label>
       <p class="hint">
+        Both values are seconds. Each wait-mode page sleeps the delay
+        (sent as <code>X-Demo-Wait-Delay-Milliseconds</code> = delay × 1000;
         @if (demoConfig(); as cfg) {
-          Wait-mode pages sleep <strong>{{ cfg.waitQueryDelayMilliseconds }}ms</strong>
-          ({{ (cfg.waitQueryDelayMilliseconds / 1000).toFixed(1) }}s) each.
-          Keep N below that (default 2) to get <strong>202</strong> and poll;
-          set N at or above it to get <strong>200</strong> on the original request.
-          Later pages use wait=<code>min(N, 5)</code>.
+          service default {{ cfg.waitQueryDelayMilliseconds / 1000 }}s
         } @else {
-          Wait-mode pages sleep 4s each. Keep wait below that to get 202; at or above it for 200.
-        }
+          service default 4s
+        }).
+        If page delay is greater than wait, the original request returns
+        <strong>202</strong> and you poll. If page delay is less than or equal to wait,
+        you get <strong>200</strong> with no monitor. Later pages use wait=<code>min(N, 5)</code>.
       </p>
 
       <fieldset>

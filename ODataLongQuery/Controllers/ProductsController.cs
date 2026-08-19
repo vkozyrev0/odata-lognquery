@@ -78,11 +78,29 @@ public sealed class ProductsController : ODataController
 
     private Task SimulateLongRunningQuery(CancellationToken cancellationToken)
     {
-        var prefer = PreferHeaderParser.Parse(Request.Headers);
-        var delay = prefer.WaitSeconds is > 0 && _async.WaitQueryDelayMilliseconds > 0
-            ? _async.WaitQueryDelayMilliseconds
-            : _async.QueryDelayMilliseconds;
+        var delay = ResolveDelayMilliseconds();
         return delay > 0 ? Task.Delay(delay, cancellationToken) : Task.CompletedTask;
+    }
+
+    private int ResolveDelayMilliseconds()
+    {
+        var prefer = PreferHeaderParser.Parse(Request.Headers);
+        var configured = prefer.WaitSeconds is > 0
+            ? ReadDelayHeader() ?? _async.WaitQueryDelayMilliseconds
+            : _async.QueryDelayMilliseconds;
+        return Math.Clamp(configured, 0, AsyncRequestOptions.MaxQueryDelayMilliseconds);
+    }
+
+    private int? ReadDelayHeader()
+    {
+        if (!Request.Headers.TryGetValue(AsyncRequestOptions.WaitDelayHeaderName, out var values))
+        {
+            return null;
+        }
+
+        return int.TryParse(values.ToString(), out var milliseconds) && milliseconds >= 0
+            ? milliseconds
+            : null;
     }
 
     private static string BuildNextLink(HttpRequest request, int skip, int? remainingTop)

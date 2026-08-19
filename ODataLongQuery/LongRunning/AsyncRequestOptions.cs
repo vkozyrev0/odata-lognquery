@@ -22,9 +22,12 @@ public sealed class AsyncRequestOptions
     public int QueryDelayMilliseconds { get; set; } = 300;
 
     /// <summary>
-    /// Per-page delay when Prefer includes wait=N. Must exceed the client's wait
-    /// (the Angular default is 2s) so the original request returns 202 instead of 200.
-    /// Set to 0 to use <see cref="QueryDelayMilliseconds"/>.
+    /// Default per-page delay when Prefer includes wait=N, used if the client
+    /// does not send <see cref="WaitDelayHeaderName"/>.
     /// </summary>
     public int WaitQueryDelayMilliseconds { get; set; } = 4000;
+
+    public const string WaitDelayHeaderName = "X-Demo-Wait-Delay-Milliseconds";
+
+    public const int MaxQueryDelayMilliseconds = 60_000;
 }

@@ -27,14 +27,16 @@ GET {{host}}/odata/Products?$filter=contains(Name,'Queso')&$orderby=Price
 Prefer: respond-async
 OData-Version: 4.0
 
-### Async with wait=2 (page sleeps 4s) — 202 then poll Location
+### Async with wait=2 and 4000ms page delay — 202 then poll Location
 GET {{host}}/odata/Products?$count=true&$orderby=Id
 Prefer: respond-async, wait=2
+X-Demo-Wait-Delay-Milliseconds: 4000
 OData-Version: 4.0
 
-### Async with wait=10 (covers the 4s page) — 200 on this request
+### Async with wait=10 and 4000ms page delay — 200 on this request
 GET {{host}}/odata/Products?$count=true&$orderby=Id
 Prefer: respond-async, wait=10
+X-Demo-Wait-Delay-Milliseconds: 4000
 OData-Version: 4.0
 
 ### Single entity, async
