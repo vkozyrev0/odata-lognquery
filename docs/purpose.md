@@ -37,9 +37,11 @@ That is the entire point of the sample: make that protocol visible, end to end.
 | `ODataLongQuery` | OData v4 service on **.NET 10**. Exposes `Products` and implements the 202 / monitor / cancel path. |
 | `ODataLongQuery.Web` | Angular 22 client. Used to demonstrate the protocol from a browser. |
 | `docs/purpose.md` | This document: why the sample exists. |
+| `docs/query-scenarios.md` | The three first-request modes and how they interact with OData paging. |
+| `excel/` | Power Query workbook (`OData-Query-Scenarios.xlsx`) and `.pq` scripts. |
 | `queries.http` | The same calls for a REST client. |
 
-The product catalog is in-memory and the service inserts a short, configurable delay (`QueryDelayMilliseconds`). The delay is intentional. Without it, a laptop finishes the query so fast that 202 never stays on screen long enough to teach anything.
+The product catalog is in-memory (default **5000** rows, **500** per page — `DemoData` in `appsettings.json`). Each page sleeps a configurable time: `QueryDelayMilliseconds` (300ms) for sync and plain async, and `WaitQueryDelayMilliseconds` (4s) when Prefer includes `wait=N`. The longer wait-mode sleep is so a 2-second wait expires and the original request returns **202**. Without it, a laptop finishes a page inside N and you never see that branch. The Angular client and the Power Query scripts follow `@odata.nextLink` with the same three request modes.
 
 ## What the website is for
 
@@ -52,7 +54,10 @@ It exists so someone can:
 - Watch the poll loop until the monitor returns the OData payload.
 - Cancel a running job.
 - Try `$filter`, `$orderby`, and `$top` and still go through the same 202 path.
-- Compare the two completed-monitor payload styles: OData 4.01 unwrapped JSON versus the OData 4.0 `application/http` wrapper.
+- Follow `@odata.nextLink` across a large paged set (default 5000 / 500) in each of the three modes.
+- Compare the two completed-monitor payload styles (see [query-scenarios.md](query-scenarios.md#completed-monitor-payload)):
+  - **OData 4.01 unwrapped:** `GET /async/{id}` with `Accept: application/json`. Monitor is 200; original status is the `AsyncResult` header; body is the Products JSON.
+  - **OData 4.0 wrapped:** same GET with `Accept: application/http`. Monitor is 200; body is a serialized HTTP message (`HTTP/1.1 200 OK` + headers + JSON) so a 4.0 client can recover the original response in full.
 
 During local demo, the Angular app calls `http://127.0.0.1:5268` directly (CORS) and sends the real OData headers (`Prefer`, `Accept`). Polling uses `/async/{jobId}` on that same origin.
 

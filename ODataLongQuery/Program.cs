@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.OData;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.OData.ModelBuilder;
 using ODataLongQuery.Data;
+using ODataLongQuery.DemoData;
 using ODataLongQuery.LongRunning;
 using ODataLongQuery.Models;
 
@@ -15,6 +17,7 @@ builder.WebHost.ConfigureKestrel(options =>
 var modelBuilder = new ODataConventionModelBuilder();
 modelBuilder.EntitySet<Product>("Products");
 
+builder.Services.Configure<DemoDataOptions>(builder.Configuration.GetSection(DemoDataOptions.SectionName));
 builder.Services.AddSingleton<ProductCatalog>();
 builder.Services.AddODataLongRunningQueries(builder.Configuration);
 builder.Services.AddCors(options =>
@@ -33,7 +36,7 @@ builder.Services.AddControllers()
         .Filter()
         .OrderBy()
         .Count()
-        .SetMaxTop(100)
+        .SetMaxTop(10000)
         .AddRouteComponents("odata", modelBuilder.GetEdmModel()));
 
 var app = builder.Build();
@@ -43,12 +46,23 @@ app.UseCors();
 app.UseODataLongRunningQueries();
 app.MapControllers();
 
-app.MapGet("/", () => Results.Json(new
+app.MapGet("/", (ProductCatalog catalog) => Results.Json(new
 {
     service = "/odata",
     metadata = "/odata/$metadata",
     products = "/odata/Products",
-    asyncHint = "Send Prefer: respond-async to run a query in the background. The service returns HTTP 202 and a Location monitor URL."
+    demoConfig = "/demo/config",
+    datasetSize = catalog.DatasetSize,
+    pageSize = catalog.PageSize,
+    asyncHint = "Send Prefer: respond-async to run a query in the background. The service returns HTTP 202 and a Location monitor URL. Follow @odata.nextLink for further pages."
+}));
+
+app.MapGet("/demo/config", (ProductCatalog catalog, IOptions<AsyncRequestOptions> asyncOptions) => Results.Json(new
+{
+    datasetSize = catalog.DatasetSize,
+    pageSize = catalog.PageSize,
+    queryDelayMilliseconds = asyncOptions.Value.QueryDelayMilliseconds,
+    waitQueryDelayMilliseconds = asyncOptions.Value.WaitQueryDelayMilliseconds
 }));
 
 app.Run();

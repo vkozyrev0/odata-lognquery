@@ -4,15 +4,27 @@
     <h1>Long-running OData queries</h1>
     <p class="lead">
       Compare a blocking query with <code>Prefer: respond-async</code>, which returns
-      <strong>HTTP 202</strong> and a pollable status monitor. The actions grid records each
-      HTTP call before product rows appear.
+      <strong>HTTP 202</strong> and a pollable status monitor. The catalog is 5000 products in
+      pages of 500; the same mode is used on every <code>@odata.nextLink</code>. The actions
+      grid records each HTTP call before product rows appear.
     </p>
   </header>
 
   <div class="layout">
     <form class="card" (submit)="$event.preventDefault(); run()">
       <h2>Query Products</h2>
-      <p class="hint">These fields become OData query options on <code>/odata/Products</code>.</p>
+      <p class="hint">
+        These fields become OData query options on <code>/odata/Products</code>.
+        The service pages at
+        @if (demoConfig(); as cfg) {
+          <strong>{{ cfg.pageSize }}</strong> rows (catalog <strong>{{ cfg.datasetSize }}</strong>;
+          {{ cfg.queryDelayMilliseconds }}ms delay per page,
+          {{ cfg.waitQueryDelayMilliseconds }}ms when using wait).
+        } @else {
+          500 rows (catalog 5000).
+        }
+        Leave <code>$top</code> empty and keep “follow pages” on to load the full set.
+      </p>
 
       <label>
         $filter
@@ -20,24 +32,33 @@
       </label>
       <label>
         $orderby
-        <input [value]="orderBy()" (input)="orderBy.set($any($event.target).value)" placeholder="Price desc" />
+        <input [value]="orderBy()" (input)="orderBy.set($any($event.target).value)" placeholder="Id" />
       </label>
       <label>
         $top
         <input
           type="number"
           min="1"
-          max="100"
+          max="10000"
           [value]="top() ?? ''"
           (input)="setTop($any($event.target).value)"
+          placeholder="all (server pages)"
         />
+      </label>
+      <label class="choice">
+        <input
+          type="checkbox"
+          [checked]="followPages()"
+          (change)="followPages.set($any($event.target).checked)"
+        />
+        Follow <code>@odata.nextLink</code> until the last page (same mode on every page; wait uses min(wait, 5) after page 1)
       </label>
 
       <fieldset>
         <legend>How to call the service</legend>
         <label class="choice">
           <input type="radio" name="mode" value="sync" [checked]="mode() === 'sync'" (change)="mode.set('sync')" />
-          Synchronous — wait on this request (~4s demo delay)
+          Synchronous — wait on this request (demo delay per page)
         </label>
         <label class="choice">
           <input type="radio" name="mode" value="async" [checked]="mode() === 'async'" (change)="mode.set('async')" />
@@ -59,17 +80,54 @@
           (input)="setWaitSeconds($any($event.target).value)"
         />
       </label>
+      <p class="hint">
+        @if (demoConfig(); as cfg) {
+          Wait-mode pages sleep <strong>{{ cfg.waitQueryDelayMilliseconds }}ms</strong>
+          ({{ (cfg.waitQueryDelayMilliseconds / 1000).toFixed(1) }}s) each.
+          Keep N below that (default 2) to get <strong>202</strong> and poll;
+          set N at or above it to get <strong>200</strong> on the original request.
+          Later pages use wait=<code>min(N, 5)</code>.
+        } @else {
+          Wait-mode pages sleep 4s each. Keep wait below that to get 202; at or above it for 200.
+        }
+      </p>
 
       <fieldset>
         <legend>Completed-monitor payload</legend>
-        <p class="hint">Applies when polling the 202 <code>Location</code> URL. Sync results are always plain OData JSON.</p>
+        <p class="hint">
+          How the <strong>finished</strong> status monitor is serialized. Used only on
+          <code>GET /async/&#123;jobId&#125;</code> after HTTP 202. A synchronous 200 (including
+          async-with-wait that finishes in time) is always plain Products JSON — this setting
+          does not apply there.
+        </p>
         <label class="choice">
           <input type="radio" name="style" value="unwrapped" [checked]="payloadStyle() === 'unwrapped'" (change)="payloadStyle.set('unwrapped')" />
-          OData 4.01 unwrapped — JSON body + <code>AsyncResult</code> header
+          <span class="choice-copy">
+            <span>OData 4.01 unwrapped — JSON body + <code>AsyncResult</code> header</span>
+            <span class="choice-detail">
+              Poll with <code>Accept: application/json</code>. The monitor itself is
+              <code>200</code>. The original query status is the <code>AsyncResult</code>
+              header (usually 200; 4xx/5xx if that query failed). The body is the same
+              Products JSON a sync GET would return — <code>value</code>,
+              <code>@odata.count</code>, <code>@odata.nextLink</code>. Easiest for browsers
+              and <code>fetch</code>: parse JSON, do not unwrap an inner HTTP message.
+            </span>
+          </span>
         </label>
         <label class="choice">
           <input type="radio" name="style" value="http" [checked]="payloadStyle() === 'http'" (change)="payloadStyle.set('http')" />
-          OData 4.0 wrapped — <code>Accept: application/http</code> HTTP message
+          <span class="choice-copy">
+            <span>OData 4.0 wrapped — <code>Accept: application/http</code> HTTP message</span>
+            <span class="choice-detail">
+              Poll with <code>Accept: application/http</code> (this demo also sends
+              <code>OData-MaxVersion: 4.0</code>). The monitor is still outer
+              <code>200</code> with <code>AsyncResult</code>, but the body is a serialized
+              HTTP response (<code>HTTP/1.1 200 OK</code>, inner headers, then JSON).
+              Parse that inner message to read the original status, content type, and
+              payload. This is the OData 4.0 shape for older clients that expect the
+              full original response as an HTTP message.
+            </span>
+          </span>
         </label>
       </fieldset>
 
@@ -106,6 +164,12 @@
             <dd>{{ result()!.payloadStyle === 'http' ? '4.0 application/http' : '4.01 unwrapped' }}</dd>
             <dt>Inner status</dt>
             <dd>{{ result()!.innerStatusCode ?? '—' }}</dd>
+            <dt>@odata.count</dt>
+            <dd>{{ result()!.odataCount ?? '—' }}</dd>
+            <dt>@odata.nextLink</dt>
+            <dd>{{ result()!.nextLink || '—' }}</dd>
+            <dt>Pages loaded</dt>
+            <dd>{{ pagingSummary() }}</dd>
           </dl>
 
           @if (polling()) {
@@ -123,6 +187,7 @@
 
       <section class="card results-pane">
         <h2>Results</h2>
+        <p class="hint">{{ pagingSummary() }} Client grid paging is only for display; server pages are 500 rows.</p>
         <ag-grid-angular
           class="results-grid"
           [theme]="gridTheme"
@@ -131,8 +196,8 @@
           [defaultColDef]="defaultColDef"
           [animateRows]="true"
           [pagination]="true"
-          [paginationPageSize]="10"
-          [paginationPageSizeSelector]="[10, 20, 50]"
+          [paginationPageSize]="50"
+          [paginationPageSizeSelector]="[25, 50, 100, 250, 500]"
         />
       </section>
     </div>

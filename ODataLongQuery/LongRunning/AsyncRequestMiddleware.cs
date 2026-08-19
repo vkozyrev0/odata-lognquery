@@ -132,8 +132,7 @@ public sealed class AsyncRequestMiddleware
 
         foreach (var header in captured.Headers)
         {
-            if (header.Key.Equals("Prefer", StringComparison.OrdinalIgnoreCase)
-                || header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
+            if (header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
                 || header.Key.Equals("Host", StringComparison.OrdinalIgnoreCase)
                 || header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)
                 || header.Key.Equals("Connection", StringComparison.OrdinalIgnoreCase))

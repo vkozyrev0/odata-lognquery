@@ -12,10 +12,23 @@ export interface Product {
   discontinued: boolean;
 }
 
+export interface DemoConfig {
+  datasetSize: number;
+  pageSize: number;
+  queryDelayMilliseconds: number;
+  waitQueryDelayMilliseconds: number;
+}
+
 export interface QuerySpec {
   filter: string;
   orderBy: string;
   top: number | null;
+  mode: CallMode;
+  waitSeconds: number;
+  payloadStyle: PayloadStyle;
+}
+
+export interface PageRequest {
   mode: CallMode;
   waitSeconds: number;
   payloadStyle: PayloadStyle;
@@ -39,6 +52,8 @@ export interface DemoQueryResult {
   preferHeader: string | null;
   acceptHeader: string | null;
   products: Product[];
+  nextLink: string | null;
+  odataCount: number | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -46,9 +61,33 @@ export class ODataService {
   /** Direct to Kestrel. Avoids Vite proxy keep-alive ECONNRESET on Node 18+. */
   readonly apiBase = 'http://127.0.0.1:5268';
 
+  async config(): Promise<DemoConfig> {
+    const response = await fetch(this.apiBase + '/demo/config');
+    if (!response.ok) {
+      throw new Error(`Could not load /demo/config (${response.status})`);
+    }
+    return (await response.json()) as DemoConfig;
+  }
+
+  buildQueryUrl(spec: QuerySpec): string {
+    return this.apiBase + this.buildPath(spec);
+  }
+
+  toAbsolute(url: string | null | undefined): string | null {
+    if (!url) {
+      return null;
+    }
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    return this.apiBase + (url.startsWith('/') ? url : `/${url}`);
+  }
+
   async query(spec: QuerySpec): Promise<DemoQueryResult> {
-    const path = this.buildPath(spec);
-    const url = this.apiBase + path;
+    return this.queryUrl(this.buildQueryUrl(spec), spec);
+  }
+
+  async queryUrl(url: string, spec: PageRequest): Promise<DemoQueryResult> {
     const prefer = this.preferFor(spec.mode, spec.waitSeconds);
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (prefer) {
@@ -57,12 +96,12 @@ export class ODataService {
 
     try {
       const response = await fetch(url, { method: 'GET', headers });
-      return await this.read(response, path, prefer, spec.payloadStyle);
+      return await this.read(response, url, prefer, spec.payloadStyle);
     } catch (err: unknown) {
       return this.failed(
         `Could not reach the OData service at ${this.apiBase}. Start it first:\n` +
           `dotnet run --project ODataLongQuery\n\n${this.messageOf(err)}`,
-        path,
+        url,
         prefer,
       );
     }
@@ -79,11 +118,11 @@ export class ODataService {
 
     try {
       const response = await fetch(url, { method: 'GET', headers });
-      const result = await this.read(response, path, null, payloadStyle);
+      const result = await this.read(response, url, null, payloadStyle);
       result.acceptHeader = accept;
       return result;
     } catch (err: unknown) {
-      return this.failed(this.messageOf(err), path);
+      return this.failed(this.messageOf(err), url);
     }
   }
 
@@ -96,6 +135,7 @@ export class ODataService {
 
   private buildPath(spec: QuerySpec): string {
     const params = new URLSearchParams();
+    params.set('$count', 'true');
     if (spec.filter.trim()) {
       params.set('$filter', spec.filter.trim());
     }
@@ -107,7 +147,7 @@ export class ODataService {
     }
 
     const query = params.toString().replace(/%24/g, '$');
-    return query ? `/odata/Products?${query}` : '/odata/Products';
+    return `/odata/Products?${query}`;
   }
 
   private preferFor(mode: CallMode, waitSeconds: number): string | null {
@@ -145,6 +185,8 @@ export class ODataService {
       preferHeader: prefer,
       acceptHeader: null,
       products: [],
+      nextLink: null,
+      odataCount: null,
     };
 
     if (this.looksLikeHtml(body)) {
@@ -183,7 +225,10 @@ export class ODataService {
       result.innerContentType = inner.contentType;
       payload = inner.body;
     }
-    result.products = this.parseProducts(payload);
+    const page = this.parsePage(payload);
+    result.products = page.products;
+    result.nextLink = this.toAbsolute(page.nextLink);
+    result.odataCount = page.count;
     return result;
   }
 
@@ -212,32 +257,44 @@ export class ODataService {
     return { statusCode: Number.isFinite(statusCode) ? statusCode : null, contentType, body };
   }
 
-  private parseProducts(body: string): Product[] {
+  private parsePage(body: string): {
+    products: Product[];
+    nextLink: string | null;
+    count: number | null;
+  } {
     if (!body.trim()) {
-      return [];
+      return { products: [], nextLink: null, count: null };
     }
     try {
       const parsed = JSON.parse(body) as Record<string, unknown> | unknown[];
-      const rows = Array.isArray(parsed)
-        ? parsed
-        : ((parsed as { value?: unknown }).value as unknown);
-      if (!Array.isArray(rows)) {
-        return [];
+      if (Array.isArray(parsed)) {
+        return { products: parsed.map((item) => this.toProduct(item)), nextLink: null, count: null };
       }
-      return rows.map((item) => {
-        const row = item as Record<string, unknown>;
-        return {
-          id: Number(row['id'] ?? row['Id']),
-          name: String(row['name'] ?? row['Name'] ?? ''),
-          category: String(row['category'] ?? row['Category'] ?? ''),
-          price: Number(row['price'] ?? row['Price']),
-          unitsInStock: Number(row['unitsInStock'] ?? row['UnitsInStock']),
-          discontinued: Boolean(row['discontinued'] ?? row['Discontinued']),
-        };
-      });
+      const record = parsed as Record<string, unknown>;
+      const rows = record['value'];
+      const nextLink =
+        typeof record['@odata.nextLink'] === 'string' ? (record['@odata.nextLink'] as string) : null;
+      const rawCount = record['@odata.count'];
+      const count = typeof rawCount === 'number' ? rawCount : null;
+      if (!Array.isArray(rows)) {
+        return { products: [], nextLink, count };
+      }
+      return { products: rows.map((item) => this.toProduct(item)), nextLink, count };
     } catch {
-      return [];
+      return { products: [], nextLink: null, count: null };
     }
+  }
+
+  private toProduct(item: unknown): Product {
+    const row = item as Record<string, unknown>;
+    return {
+      id: Number(row['id'] ?? row['Id']),
+      name: String(row['name'] ?? row['Name'] ?? ''),
+      category: String(row['category'] ?? row['Category'] ?? ''),
+      price: Number(row['price'] ?? row['Price']),
+      unitsInStock: Number(row['unitsInStock'] ?? row['UnitsInStock']),
+      discontinued: Boolean(row['discontinued'] ?? row['Discontinued']),
+    };
   }
 
   private jobIdFrom(location: string | null, body: string): string | null {
@@ -315,6 +372,8 @@ export class ODataService {
       preferHeader: prefer,
       acceptHeader: null,
       products: [],
+      nextLink: null,
+      odataCount: null,
     };
   }
 }

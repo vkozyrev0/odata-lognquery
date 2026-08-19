@@ -6,7 +6,18 @@ GET {{host}}/odata
 ### Metadata
 GET {{host}}/odata/$metadata
 
-### Synchronous query (waits ~4s for the demo delay)
+### Demo paging config (dataset 5000, page size 500)
+GET {{host}}/demo/config
+
+### First server page (500 rows + @odata.nextLink)
+GET {{host}}/odata/Products?$count=true&$orderby=Id
+OData-Version: 4.0
+
+### Second server page
+GET {{host}}/odata/Products?$count=true&$orderby=Id&$skip=500
+OData-Version: 4.0
+
+### Synchronous query (waits QueryDelayMilliseconds per page)
 GET {{host}}/odata/Products?$filter=Price lt 50&$select=Id,Name,Price,Category
 OData-Version: 4.0
 
@@ -16,8 +27,13 @@ GET {{host}}/odata/Products?$filter=contains(Name,'Queso')&$orderby=Price
 Prefer: respond-async
 OData-Version: 4.0
 
-### Wait up to 10 seconds, then 202 if still running
-GET {{host}}/odata/Products?$top=5
+### Async with wait=2 (page sleeps 4s) — 202 then poll Location
+GET {{host}}/odata/Products?$count=true&$orderby=Id
+Prefer: respond-async, wait=2
+OData-Version: 4.0
+
+### Async with wait=10 (covers the 4s page) — 200 on this request
+GET {{host}}/odata/Products?$count=true&$orderby=Id
 Prefer: respond-async, wait=10
 OData-Version: 4.0
 

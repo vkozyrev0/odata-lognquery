@@ -15,6 +15,8 @@ Why the sample exists: [docs/purpose.md](docs/purpose.md).
 | `ODataLongQuery/` | OData v4 service (`Products`, 202 middleware, `/async/{jobId}` monitor) |
 | `ODataLongQuery.Web/` | Angular 22 client (`ng serve` proxies `/odata` and `/async` to the service) |
 | `docs/purpose.md` | Purpose of the demo |
+| `docs/query-scenarios.md` | Sync, async, and async-with-wait — including OData paging |
+| `excel/` | Power Query workbook and M scripts for the same three scenarios |
 | `queries.http` | REST Client requests for the same flows |
 | `global.json` | Pins the released .NET 10 SDK (`10.0.400`) |
 
@@ -44,7 +46,7 @@ cd ODataLongQuery.Web && npm start
 
 The Angular app calls the service at `http://127.0.0.1:5268` (CORS). Keep both processes running.
 
-Open the website to compare a blocking query with `Prefer: respond-async`, poll the monitor, cancel a job, and switch between OData 4.01 unwrapped JSON and the 4.0 `application/http` wrapper.
+Open the website to compare a blocking query with `Prefer: respond-async`, poll the monitor, cancel a job, follow `@odata.nextLink` across the 5000-row catalog (500 per page), and switch between OData 4.01 unwrapped JSON and the 4.0 `application/http` wrapper.
 
 ## How the 202 flow works
 
@@ -78,8 +80,9 @@ Client                         Service                         Monitor
 | --- | --- | --- |
 | GET | `/odata` | Service document |
 | GET | `/odata/$metadata` | EDM metadata |
-| GET | `/odata/Products` | Product entity set (`$filter`, `$select`, `$orderby`, `$top`, `$skip`, `$count`) |
+| GET | `/odata/Products` | Product entity set (`$filter`, `$select`, `$orderby`, `$top`, `$skip`, `$count`; page size 500 + `@odata.nextLink`) |
 | GET | `/odata/Products({id})` | Single product |
+| GET | `/demo/config` | Live `datasetSize`, `pageSize`, `queryDelayMilliseconds` |
 | GET | `/async/{jobId}` | Status monitor for a 202 job |
 | DELETE | `/async/{jobId}` | Cancel the job |
 
@@ -113,19 +116,45 @@ Poll until ready:
 curl -i http://localhost:5268/async/{jobId}
 ```
 
-Completed monitor, OData 4.01 (default): `200` + `AsyncResult: 200` + Products JSON.
+The completed monitor is always outer **200** (the job is done). How the **original** query is represented is a second choice — the Angular **Completed-monitor payload** radios. Full write-up: [docs/query-scenarios.md](docs/query-scenarios.md#completed-monitor-payload).
 
-Completed monitor, OData 4.0 wrapper:
+**OData 4.01 unwrapped** (default): poll with `Accept: application/json`. Body is the Products JSON. The original status is only in the `AsyncResult` header (`200` on success, 4xx/5xx if that query failed). Browsers can `JSON.parse` the body.
+
+```http
+HTTP/1.1 200 OK
+AsyncResult: 200
+Content-Type: application/json
+
+{ "@odata.context": "...", "value": [ ... ], "@odata.nextLink": "..." }
+```
+
+**OData 4.0 wrapped**: poll with `Accept: application/http` (this sample also sends `OData-MaxVersion: 4.0`). Body is a serialized HTTP response; parse the inner status line, headers, then JSON. Use this to match older 4.0 clients.
 
 ```bash
 curl -i -H "Accept: application/http" http://localhost:5268/async/{jobId}
 ```
 
-Wait up to 10 seconds, then 202 only if still running:
+```http
+HTTP/1.1 200 OK
+AsyncResult: 200
+Content-Type: application/http
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{ "value": [ ... ] }
+```
+
+Neither shape applies to a synchronous 200 or to async-with-wait that finishes on the original request — those bodies are already Products JSON.
+
+Wait-mode pages sleep 4s (`WaitQueryDelayMilliseconds`). A 2-second wait expires and returns 202; a 10-second wait covers the page and returns 200:
 
 ```bash
+curl -i -H "Prefer: respond-async, wait=2" \
+  "http://localhost:5268/odata/Products?$count=true&$orderby=Id"
+
 curl -i -H "Prefer: respond-async, wait=10" \
-  "http://localhost:5268/odata/Products?$top=5"
+  "http://localhost:5268/odata/Products?$count=true&$orderby=Id"
 ```
 
 Cancel:
@@ -141,14 +170,23 @@ curl -X DELETE http://localhost:5268/async/{jobId}
 `ODataLongQuery/appsettings.json`:
 
 ```json
+"DemoData": {
+  "DatasetSize": 5000,
+  "PageSize": 500
+},
 "AsyncRequests": {
   "RetryAfterSeconds": 2,
   "JobTimeToLiveMinutes": 15,
-  "QueryDelayMilliseconds": 4000
+  "QueryDelayMilliseconds": 300,
+  "WaitQueryDelayMilliseconds": 4000
 }
 ```
 
-Set `QueryDelayMilliseconds` to `0` to turn off the artificial delay.
+`PageSize` is the server-driven page (`@odata.nextLink` until the last page). Raise `DatasetSize` to try a larger catalog.
+
+`QueryDelayMilliseconds` is the per-page sleep for sync and for `respond-async` without wait. `WaitQueryDelayMilliseconds` is the per-page sleep when Prefer includes `wait=N`. The Angular default wait is **2 seconds**, so wait mode returns **202** (then you poll). Raise wait to 4 or more to get **200** on the original request instead. Set either delay to `0` to turn that sleep off.
+
+`GET /demo/config` returns the live `datasetSize`, `pageSize`, and delay. The Angular client and the Power Query scripts in `excel/power-query/` follow `nextLink` with the same three modes as the UI.
 
 ## Build
 

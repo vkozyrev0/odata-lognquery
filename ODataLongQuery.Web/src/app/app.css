@@ -129,6 +129,21 @@ legend {
 
 .choice input {
   margin-top: 0.2rem;
+  flex: 0 0 auto;
+}
+
+.choice-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.choice-detail {
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 button {
@@ -233,6 +248,7 @@ button.secondary {
 
 .actions-pane .hint,
 .results-pane > h2,
+.results-pane > .hint,
 .actions-pane .card-heading {
   flex: 0 0 auto;
 }
